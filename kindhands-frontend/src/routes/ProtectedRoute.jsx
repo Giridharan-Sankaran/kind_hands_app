@@ -1,16 +1,17 @@
 import { Navigate, Outlet } from "react-router-dom";
 import NavBar from "../components/NavBar";
 
-export default function ProtectedRoute({ user, role }) {
+export default function ProtectedRoute({ user, role, loading }) {
+  if (loading) {
+    return <div className="p-6 text-center">Loading...</div>;
+  }
+
   if (!user) return <Navigate to="/login" replace />;
 
   return (
     <>
-      {/* Navbar visible ONLY for logged-in users */}
       <NavBar user={user} role={role} />
-
-      {/* Protected children pages */}
-      <main class="p-6">
+      <main className="p-6">
         <Outlet />
       </main>
     </>

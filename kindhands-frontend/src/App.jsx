@@ -7,7 +7,7 @@ import Dashboard from "./pages/Dashboard";
 import CreateRequest from "./pages/CreateRequest";
 import RequestsList from "./pages/RequestsList";
 import Profile from "./pages/Profile";
-import NavBar from "./components/NavBar";
+import ProtectedRoute from "./routes/ProtectedRoute";
 
 import { auth } from "./firebase.js";
 import { onAuthStateChanged } from "firebase/auth";
@@ -15,19 +15,21 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "./firebase.js";
 
 function App() {
-  const [user, setUser] = useState(null); // firebase user
-  const [role, setRole] = useState(null); // elder | volunteer
+  const [user, setUser] = useState(null);
+  const [role, setRole] = useState(null);
+
   const navigate = useNavigate();
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (u) {
         setUser(u);
-        // fetch role from users collection
+
         try {
-          const docSnap = await getDoc(doc(db, "users", u.uid));
-          setRole(docSnap.exists() ? docSnap.data().role : null);
+          const snap = await getDoc(doc(db, "users", u.uid));
+          setRole(snap.exists() ? snap.data().role : null);
         } catch (err) {
+          console.error("Error fetching role", err);
           setRole(null);
         }
       } else {
@@ -35,22 +37,45 @@ function App() {
         setRole(null);
       }
     });
+
     return () => unsub();
   }, []);
 
   return (
     <div>
-      <NavBar user={user} role={role} />
-      <main style={{ padding: 20 }}>
+      <main>
         <Routes>
-          <Route path="/" element={user ? <Navigate to="/dashboard" /> : <Navigate to="/login" />} />
+          {/* Redirect root */}
+          <Route
+            path="/"
+            element={
+              user ? <Navigate to="/dashboard" /> : <Navigate to="/login" />
+            }
+          />
+
+          {/* Public routes */}
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
 
-          <Route path="/dashboard" element={user ? <Dashboard user={user} role={role} /> : <Navigate to="/login" />} />
-          <Route path="/create-request" element={user ? <CreateRequest user={user} role={role} /> : <Navigate to="/login" />} />
-          <Route path="/requests" element={user ? <RequestsList user={user} role={role} /> : <Navigate to="/login" />} />
-          <Route path="/profile" element={user ? <Profile user={user} role={role} /> : <Navigate to="/login" />} />
+          {/* Protected routes */}
+          <Route element={<ProtectedRoute user={user} />}>
+            <Route
+              path="/dashboard"
+              element={<Dashboard user={user} role={role} />}
+            />
+            <Route
+              path="/create-request"
+              element={<CreateRequest user={user} role={role} />}
+            />
+            <Route
+              path="/requests"
+              element={<RequestsList user={user} role={role} />}
+            />
+            <Route
+              path="/profile"
+              element={<Profile user={user} role={role} />}
+            />
+          </Route>
         </Routes>
       </main>
     </div>

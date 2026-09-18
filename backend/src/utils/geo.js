@@ -1,0 +1,22 @@
+// Distances are computed locally with the haversine formula, so
+// volunteer-matching works without any paid geocoding/maps API key.
+// Reverse-geocoding a typed address into lat/lng still needs a real maps
+// provider and isn't wired up here — see Address.location comments.
+function toRad(deg) {
+  return (deg * Math.PI) / 180;
+}
+
+function distanceKm(lat1, lng1, lat2, lng2) {
+  if ([lat1, lng1, lat2, lng2].some((v) => v === null || v === undefined || Number.isNaN(Number(v)))) {
+    return null;
+  }
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+module.exports = { distanceKm };

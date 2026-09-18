@@ -1,16 +1,18 @@
 import React, { useEffect, useState } from "react";
-import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
-import CreateRequest from "./pages/CreateRequest";
 import RequestsList from "./pages/RequestsList";
 import Profile from "./pages/Profile";
+import ProductCatalog from "./pages/ProductCatalog";
+import Cart from "./pages/Cart";
+import Checkout from "./pages/Checkout";
+import OrderDetail from "./pages/OrderDetail";
 import ProtectedRoute from "./routes/ProtectedRoute";
-
-import { auth, db } from "./firebase.js";
-import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { CartProvider } from "./context/CartContext";
+import { getCurrentUserFrontend } from "./services/authFrontendService";
+import { getToken } from "./services/api";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -18,55 +20,54 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      if (u) {
-        setUser(u);
-        try {
-          const snap = await getDoc(doc(db, "users", u.uid));
-          setRole(snap.exists() ? snap.data().role : null);
-        } catch (err) {
-          console.error("Error fetching role", err);
-          setRole(null);
-        }
-      } else {
-        setUser(null);
-        setRole(null);
+    async function restoreSession() {
+      if (!getToken()) {
+        setLoading(false);
+        return;
+      }
+      const res = await getCurrentUserFrontend();
+      if (res.success) {
+        setUser(res.user);
+        setRole(res.role);
       }
       setLoading(false);
-    });
-
-    return () => unsub();
+    }
+    restoreSession();
   }, []);
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center min-h-screen text-xl font-bold">
+      <div className="flex justify-center items-center min-h-screen bg-paper text-lg font-semibold text-ink-muted">
         Loading...
       </div>
     );
   }
 
   return (
-    <div>
-      <main>
-        <Routes>
-          {/* Redirect root */}
-          <Route path="/" element={user ? <Navigate to="/dashboard" /> : <Navigate to="/login" />} />
+    <CartProvider role={role}>
+      <div>
+        <main>
+          <Routes>
+            <Route path="/" element={user ? <Navigate to="/dashboard" /> : <Navigate to="/login" />} />
 
-          {/* Public routes */}
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+            <Route path="/login" element={<Login onLogin={(u, r) => { setUser(u); setRole(r); }} />} />
+            <Route path="/register" element={<Register onLogin={(u, r) => { setUser(u); setRole(r); }} />} />
 
-          {/* Protected routes */}
-          <Route element={<ProtectedRoute user={user} role={role} loading={loading} />}>
-            <Route path="/dashboard" element={<Dashboard user={user} role={role} />} />
-            <Route path="/create-request" element={<CreateRequest user={user} role={role} />} />
-            <Route path="/requests" element={<RequestsList user={user} role={role} />} />
-            <Route path="/profile" element={<Profile user={user} role={role} />} />
-          </Route>
-        </Routes>
-      </main>
-    </div>
+            <Route element={<ProtectedRoute user={user} role={role} loading={loading} />}>
+              <Route path="/dashboard" element={<Dashboard user={user} role={role} />} />
+              <Route path="/products" element={<ProductCatalog role={role} />} />
+              <Route path="/cart" element={<Cart role={role} />} />
+              <Route path="/checkout" element={<Checkout role={role} />} />
+              <Route path="/requests" element={<RequestsList user={user} role={role} />} />
+              <Route path="/orders/:id" element={<OrderDetail user={user} role={role} />} />
+              <Route path="/profile" element={<Profile user={user} role={role} />} />
+            </Route>
+
+            <Route path="*" element={<Navigate to={user ? "/dashboard" : "/login"} />} />
+          </Routes>
+        </main>
+      </div>
+    </CartProvider>
   );
 }
 

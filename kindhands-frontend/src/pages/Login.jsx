@@ -1,78 +1,82 @@
 // src/pages/Login.jsx
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { loginUserFrontend } from "../services/authFrontendService";
-import { auth } from "../firebase.js";
-import { onAuthStateChanged } from "firebase/auth";
+import { getToken } from "../services/api";
+import ToteMark from "../components/illustrations/ToteMark";
+import Button from "../components/ui/Button";
+import { inputClass, labelClass } from "../styles/formClasses";
 
-export default function Login() {
+export default function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [msg, setMsg] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
 
-  // Redirect if already logged in
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        navigate("/dashboard"); // Already logged in → redirect
-      }
-    });
-    return () => unsub();
+    if (getToken()) {
+      navigate("/dashboard");
+    }
   }, [navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitting(true);
+    setMsg("");
     const res = await loginUserFrontend(email, password);
+    setSubmitting(false);
     if (res.success) {
-      setMsg("Login successful!");
-      navigate("/dashboard"); // Redirect after login
+      onLogin?.(res.user, res.role);
+      navigate("/dashboard");
     } else {
-      setMsg(res.error?.code || res.error?.message || "Login failed");
+      setMsg(res.error || "Login failed");
     }
   };
 
   return (
-    <div className="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-sm">
-        <h2 className="mt-10 text-center text-2xl font-bold tracking-tight text-gray-900">
-          Login to your account
-        </h2>
+    <div className="min-h-screen flex flex-col md:flex-row">
+      {/* Brand panel */}
+      <div className="bg-pine-deep text-white px-8 py-12 md:w-1/2 md:flex md:flex-col md:justify-center">
+        <div className="max-w-sm mx-auto md:mx-0">
+          <div className="flex items-center gap-3">
+            <ToteMark size={44} />
+            <span className="font-display text-2xl font-bold">Kind Hands</span>
+          </div>
+          <h1 className="font-display mt-8 text-3xl md:text-4xl font-bold leading-tight">
+            Neighbors helping neighbors shop.
+          </h1>
+          <p className="mt-4 text-white/75 text-base leading-relaxed">
+            Kind Hands connects elders who need groceries with volunteers nearby who are glad to help —
+            from picking the items to delivering them to your door.
+          </p>
+        </div>
       </div>
 
-      <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-900">
-              Email address
-            </label>
-            <div className="mt-2">
+      {/* Form panel */}
+      <div className="flex-1 flex items-center justify-center px-6 py-12 bg-paper">
+        <div className="w-full max-w-sm">
+          <h2 className="font-display text-2xl font-bold text-ink">Welcome back</h2>
+          <p className="mt-1 text-ink-muted">Log in to your account.</p>
+
+          <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+            <div>
+              <label htmlFor="email" className={labelClass}>Email address</label>
               <input
                 id="email"
                 type="email"
                 name="email"
                 required
                 autoComplete="email"
-                placeholder="Email"
-                className="block w-full rounded-md px-3 py-1.5 text-base text-gray-900 outline-1 outline-gray-300 focus:outline-2 focus:outline-indigo-600"
+                placeholder="you@example.com"
+                className={inputClass}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
             </div>
-          </div>
 
-          <div>
-            <div className="flex items-center justify-between">
-              <label htmlFor="password" className="block text-sm font-medium text-gray-900">
-                Password
-              </label>
-              <div className="text-sm">
-                <a href="#" className="font-semibold text-indigo-400 hover:text-indigo-300">
-                  Forgot password?
-                </a>
-              </div>
-            </div>
-            <div className="mt-2">
+            <div>
+              <label htmlFor="password" className={labelClass}>Password</label>
               <input
                 id="password"
                 type="password"
@@ -80,31 +84,26 @@ export default function Login() {
                 required
                 autoComplete="current-password"
                 placeholder="Password"
-                className="block w-full rounded-md px-3 py-1.5 text-base text-gray-900 outline-1 outline-gray-300 focus:outline-2 focus:outline-indigo-600"
+                className={inputClass}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
-          </div>
 
-          <div>
-            <button
-              type="submit"
-              className="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-indigo-600"
-            >
-              Login
-            </button>
-          </div>
-        </form>
+            <Button type="submit" disabled={submitting} size="lg" className="w-full">
+              {submitting ? "Logging in..." : "Log in"}
+            </Button>
+          </form>
 
-        {msg && <p className="mt-4 text-center text-sm text-red-500">{msg}</p>}
+          {msg && <p className="mt-4 text-sm text-clay">{msg}</p>}
 
-        <p className="mt-10 text-center text-sm text-gray-500">
-          Don't have an account?
-          <a href="/register" className="font-semibold text-indigo-600 hover:text-indigo-500">
-            {" "}Create an account
-          </a>
-        </p>
+          <p className="mt-8 text-sm text-ink-muted">
+            Don't have an account?{" "}
+            <Link to="/register" className="font-semibold text-pine hover:text-pine-deep">
+              Create one
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );

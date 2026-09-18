@@ -1,49 +1,47 @@
 // src/services/authFrontendService.js
-import { auth, db } from "../firebase.js";
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
+import { apiRequest, setToken, clearToken } from "./api";
 
-/**
- * register frontend: creates auth user and stores role in users collection
- */
 export async function registerUserFrontend(name, email, password, role) {
   try {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
-
-    await setDoc(doc(db, "users", user.uid), {
-      name: name || "",
-      email,
-      role,
-      createdAt: serverTimestamp()
+    const data = await apiRequest("/auth/register", {
+      method: "POST",
+      body: { name, email, password, role },
+      auth: false,
     });
-
-    return { success: true, user };
+    setToken(data.token);
+    return { success: true, user: data.user };
   } catch (err) {
-    return { success: false, error: err };
+    return { success: false, error: err.message };
   }
 }
 
-/**
- * login user and fetch role
- */
 export async function loginUserFrontend(email, password) {
   try {
-    const uc = await signInWithEmailAndPassword(auth, email, password);
-    const user = uc.user;
-    const userDoc = await getDoc(doc(db, "users", user.uid));
-    const role = userDoc.exists() ? userDoc.data().role : null;
-    return { success: true, user, role };
+    const data = await apiRequest("/auth/login", {
+      method: "POST",
+      body: { email, password },
+      auth: false,
+    });
+    setToken(data.token);
+    return { success: true, user: data.user, role: data.user.role };
   } catch (err) {
-    return { success: false, error: err };
+    return { success: false, error: err.message };
+  }
+}
+
+// Restores a session from a previously-stored JWT, verifying it against
+// the backend rather than trusting whatever is in localStorage.
+export async function getCurrentUserFrontend() {
+  try {
+    const data = await apiRequest("/auth/me", { method: "GET" });
+    return { success: true, user: data.user, role: data.user.role };
+  } catch (err) {
+    clearToken();
+    return { success: false, error: err.message };
   }
 }
 
 export async function logoutUserFrontend() {
-  try {
-    await signOut(auth);
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err };
-  }
+  clearToken();
+  return { success: true };
 }

@@ -1,0 +1,12 @@
+services:
+  mongo:
+    image: mongo:7.0
+    container_name: kindhands-mongo
+    restart: unless-stopped
+    ports:
+      - "27018:27017" # host:container — 27018 avoids clashing with your local Mongo on 27017
+    volumes:
+      - kindhands-mongo-data:/data/db
+
+volumes:
+  kindhands-mongo-data:

@@ -21,7 +21,6 @@ export default function AddressForm({ initial, onCancel, onSave }) {
 
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value });
 
-  // Debounced address-search autocomplete, the way Google Places would work.
   useEffect(() => {
     if (query.trim().length < 3) {
       setSuggestions([]);
@@ -37,7 +36,6 @@ export default function AddressForm({ initial, onCancel, onSave }) {
     return () => clearTimeout(timeout);
   }, [query]);
 
-  // Close the suggestion list on outside click.
   useEffect(() => {
     function handleClick(e) {
       if (boxRef.current && !boxRef.current.contains(e.target)) setShowSuggestions(false);

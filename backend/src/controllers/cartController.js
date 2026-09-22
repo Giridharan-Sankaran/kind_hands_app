@@ -19,19 +19,37 @@ async function findOrCreateCart(userId) {
   return cart;
 }
 
-// Builds the response shape the frontend renders: each line with live
-// product details and a computed subtotal, plus a cart-wide total. Any
-// item whose product was deleted or made unavailable is dropped from the
-// totals (and flagged) rather than silently priced at zero.
+// Builds the response shape the frontend renders. Catalog lines get live
+// product details and a computed subtotal; custom (free-text) lines have
+// no known price yet — priced when the volunteer actually buys them — so
+// they're shown with subtotal 0 and flagged hasCustomItems so the UI can
+// label the total as an estimate rather than a final figure.
 async function serializeCart(cart) {
   const populated = await cart.populate("items.product");
   let total = 0;
+
   const items = populated.items.map((item) => {
+    if (item.isCustom) {
+      return {
+        id: item._id.toString(),
+        isCustom: true,
+        name: item.customName,
+        unit: item.customUnit,
+        quantity: item.quantity,
+        note: item.note || "",
+        unavailable: false,
+        subtotal: 0,
+      };
+    }
+
     const product = item.product;
     const unavailable = !product || !product.isAvailable;
     const subtotal = unavailable ? 0 : product.price * item.quantity;
     if (!unavailable) total += subtotal;
+
     return {
+      id: item._id.toString(),
+      isCustom: false,
       product: product || null,
       quantity: item.quantity,
       note: item.note || "",
@@ -40,7 +58,13 @@ async function serializeCart(cart) {
     };
   });
 
-  return { id: populated.id, items, total, itemCount: items.length };
+  return {
+    id: populated.id,
+    items,
+    total,
+    itemCount: items.length,
+    hasCustomItems: items.some((i) => i.isCustom),
+  };
 }
 
 // GET /api/cart
@@ -49,19 +73,34 @@ const getCart = asyncHandler(async (req, res) => {
   res.json({ success: true, cart: await serializeCart(cart) });
 });
 
-// POST /api/cart/items  { productId, quantity, note? }
+// POST /api/cart/items
+// Either { productId, quantity, note? } for a catalog item, or
+// { customName, customUnit, quantity?, note? } for a free-text item not
+// in the catalog. Custom lines are never merged — each one is its own
+// entry, since there's no id to match a duplicate against.
 const addItem = asyncHandler(async (req, res) => {
   throwIfInvalid(req);
-  const { productId, quantity, note } = req.body;
+  const { productId, quantity, note, customName, customUnit } = req.body;
+  const cart = await findOrCreateCart(req.user.id);
+
+  if (customName) {
+    cart.items.push({
+      isCustom: true,
+      customName: customName.trim(),
+      customUnit: (customUnit || "").trim(),
+      quantity: quantity || 1,
+      note: note || "",
+    });
+    await cart.save();
+    return res.status(201).json({ success: true, cart: await serializeCart(cart) });
+  }
 
   const product = await Product.findById(productId);
   if (!product || !product.isAvailable) {
     throw new ApiError(404, "That item isn't available right now.");
   }
 
-  const cart = await findOrCreateCart(req.user.id);
-  const existing = cart.items.find((i) => i.product.toString() === productId);
-
+  const existing = cart.items.find((i) => !i.isCustom && i.product && i.product.toString() === productId);
   if (existing) {
     existing.quantity = Math.min(99, existing.quantity + quantity);
     if (note !== undefined) existing.note = note;
@@ -73,21 +112,20 @@ const addItem = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, cart: await serializeCart(cart) });
 });
 
-// PATCH /api/cart/items/:productId  { quantity?, note? }
-// Quantity of 0 removes the item. Either field can be sent alone — e.g.
-// just adding a note without changing quantity.
+// PATCH /api/cart/items/:itemId  { quantity?, note? }
+// Quantity of 0 removes the line. Works for both catalog and custom items.
 const updateItem = asyncHandler(async (req, res) => {
   throwIfInvalid(req);
   const { quantity, note } = req.body;
   const cart = await findOrCreateCart(req.user.id);
-  const item = cart.items.find((i) => i.product.toString() === req.params.productId);
+  const item = cart.items.id(req.params.itemId);
 
   if (!item) {
     throw new ApiError(404, "That item isn't in your cart.");
   }
 
   if (quantity !== undefined && quantity <= 0) {
-    cart.items = cart.items.filter((i) => i.product.toString() !== req.params.productId);
+    cart.items.pull({ _id: req.params.itemId });
   } else {
     if (quantity !== undefined) item.quantity = quantity;
     if (note !== undefined) item.note = note;
@@ -97,10 +135,10 @@ const updateItem = asyncHandler(async (req, res) => {
   res.json({ success: true, cart: await serializeCart(cart) });
 });
 
-// DELETE /api/cart/items/:productId
+// DELETE /api/cart/items/:itemId
 const removeItem = asyncHandler(async (req, res) => {
   const cart = await findOrCreateCart(req.user.id);
-  cart.items = cart.items.filter((i) => i.product.toString() !== req.params.productId);
+  cart.items.pull({ _id: req.params.itemId });
   await cart.save();
   res.json({ success: true, cart: await serializeCart(cart) });
 });

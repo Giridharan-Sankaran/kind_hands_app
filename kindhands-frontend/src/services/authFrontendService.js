@@ -29,8 +29,6 @@ export async function loginUserFrontend(email, password) {
   }
 }
 
-// Restores a session from a previously-stored JWT, verifying it against
-// the backend rather than trusting whatever is in localStorage.
 export async function getCurrentUserFrontend() {
   try {
     const data = await apiRequest("/auth/me", { method: "GET" });

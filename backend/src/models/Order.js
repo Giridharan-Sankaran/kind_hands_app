@@ -1,10 +1,10 @@
 const mongoose = require("mongoose");
 
 // Full 14-stage lifecycle from the product spec. Only 'searching_volunteer',
-// 'volunteer_assigned', and 'cancelled' are reachable through code right
-// now (Phase 5/6). The rest are reserved for the shopping-progress
-// controls (Phase 7), OTP delivery (Phase 8), and payment (Phase 9), so
-// the schema doesn't need another migration when those land.
+// 'volunteer_assigned', and the forward statuses through 'delivered' are
+// reachable through code right now. The rest are reserved for OTP delivery
+// and payment-gateway work, so the schema doesn't need another migration
+// when those land.
 const ORDER_STATUSES = [
   "placed",
   "searching_volunteer",
@@ -23,19 +23,27 @@ const ORDER_STATUSES = [
 ];
 
 const orderItemSchema = new mongoose.Schema({
+  // Catalog items reference a Product; custom items (isCustom: true) don't
+  // — the elder typed a name/amount directly because it wasn't in the
+  // catalog. See Cart.js for why: no free API gives us a specific shop's
+  // real inventory, so a free-text option is more honest than pretending
+  // the catalog covers everything.
   product: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Product",
-    required: true,
+    default: null,
   },
-  // Snapshotted at order time so a later catalog edit never rewrites history.
+  isCustom: { type: Boolean, default: false },
+  // Snapshotted at order time so a later catalog edit never rewrites
+  // history. For custom items, this IS what the elder typed (no catalog
+  // record to snapshot from).
   name: { type: String, required: true },
   unit: { type: String, required: true },
   quantity: { type: Number, required: true, min: 1 },
-  priceAtOrder: { type: Number, required: true, min: 0 },
-  // e.g. "smaller tomatoes please" / "Aashirvaad brand only" — carried over from the cart.
+  // null for custom items — there's no reference price until the
+  // volunteer actually buys it and records the real cost.
+  priceAtOrder: { type: Number, default: null, min: 0 },
   note: { type: String, default: "", maxlength: 200 },
-  // Filled in by the volunteer while shopping — not used until Phase 8.
   actualPrice: { type: Number, default: null },
   itemStatus: {
     type: String,
@@ -98,8 +106,10 @@ const orderSchema = new mongoose.Schema(
     },
     shoppingNotes: { type: String, default: "", maxlength: 500 },
     deliveryInstructions: { type: String, default: "", maxlength: 500 },
+    // "Estimated" — catalog prices are approximate, and custom items
+    // contribute nothing until actually priced. See actualTotal.
     itemsTotal: { type: Number, required: true, min: 0 },
-    // Set once the volunteer records real purchase prices (Phase 8).
+    // Set once the volunteer records real purchase prices.
     actualTotal: { type: Number, default: null },
     status: {
       type: String,
@@ -113,8 +123,7 @@ const orderSchema = new mongoose.Schema(
     },
     acceptedAt: { type: Date, default: null },
     // Pushed by the volunteer's device while status is heading_to_elder /
-    // arrived, via watchPosition — real device GPS, not simulated. The
-    // elder's order-tracking view polls the order and renders this on a map.
+    // arrived, via watchPosition — real device GPS, not simulated.
     volunteerLiveLocation: {
       lat: { type: Number, default: null },
       lng: { type: Number, default: null },

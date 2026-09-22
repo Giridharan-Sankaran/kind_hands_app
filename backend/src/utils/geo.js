@@ -1,7 +1,5 @@
 // Distances are computed locally with the haversine formula, so
 // volunteer-matching works without any paid geocoding/maps API key.
-// Reverse-geocoding a typed address into lat/lng still needs a real maps
-// provider and isn't wired up here — see Address.location comments.
 function toRad(deg) {
   return (deg * Math.PI) / 180;
 }

@@ -1,8 +1,8 @@
 // Populates Category, Product, and Shop collections with realistic
 // starter data for elderly users in India. Safe to re-run — it clears
 // and re-inserts all three collections. Product photography and rich
-// descriptions get layered on via the admin dashboard (Phase 11); this
-// seed exists so the app isn't empty in the meantime.
+// descriptions get layered on via the admin dashboard later; this seed
+// exists so the app isn't empty in the meantime.
 require("dotenv").config();
 const mongoose = require("mongoose");
 const connectDB = require("../config/db");
@@ -236,8 +236,6 @@ async function seed() {
       price,
       isFrequentlyOrdered: Boolean(extra.frequentlyOrdered),
       elderFriendlyTags: extra.tags || [],
-      // Front-of-catalog items get a higher popularity score so they sort
-      // to the top of their category by default.
       popularity: extra.frequentlyOrdered ? 90 - index : 50 - index,
     }));
 

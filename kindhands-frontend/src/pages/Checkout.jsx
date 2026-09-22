@@ -1,11 +1,11 @@
 // src/pages/Checkout.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { Star, ShoppingCart, Store, Globe } from "lucide-react";
+import { Star, ShoppingCart, Store, Globe, MapPin, AlertTriangle } from "lucide-react";
 import { getCart } from "../services/cartService";
 import { listAddresses, createAddress } from "../services/addressService";
 import { searchShops, getFavoriteShops, getRecentShops, toggleFavoriteShop } from "../services/shopService";
-import { findNearbyShops } from "../services/geocodingService";
+import { findNearbyShops, searchAddress } from "../services/geocodingService";
 import { placeOrder } from "../services/orderService";
 import { useCart } from "../context/CartContext";
 import AddressForm from "../components/AddressForm";
@@ -30,17 +30,10 @@ function ShopCard({ shop, selected, onSelect, isFavorite, onToggleFavorite }) {
           </div>
           <div className="text-sm text-ink-muted">{shop.type} · {shop.city}</div>
           <div className="text-xs text-ink-muted/80 mt-1">{shop.openingHours}</div>
-          {shop.distanceKm != null && (
-            <div className="text-xs font-semibold text-pine mt-1">{shop.distanceKm} km away</div>
-          )}
+          {shop.distanceKm != null && <div className="text-xs font-semibold text-pine mt-1">{shop.distanceKm} km away</div>}
         </button>
         {onToggleFavorite && (
-          <button
-            type="button"
-            onClick={() => onToggleFavorite(shop.id)}
-            aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
-            className={isFavorite ? "text-marigold" : "text-line"}
-          >
+          <button type="button" onClick={() => onToggleFavorite(shop.id)} aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"} className={isFavorite ? "text-marigold" : "text-line"}>
             <Star size={20} fill={isFavorite ? "currentColor" : "none"} />
           </button>
         )}
@@ -67,6 +60,11 @@ export default function Checkout({ role }) {
   const [useManualShop, setUseManualShop] = useState(false);
   const [manualShop, setManualShop] = useState({ name: "", address: "", phone: "" });
 
+  const [cityQuery, setCityQuery] = useState("");
+  const [citySearching, setCitySearching] = useState(false);
+  const [cityShops, setCityShops] = useState([]);
+  const [citySearchedLabel, setCitySearchedLabel] = useState("");
+
   const [shoppingNotes, setShoppingNotes] = useState("");
   const [deliveryInstructions, setDeliveryInstructions] = useState("");
 
@@ -81,10 +79,7 @@ export default function Checkout({ role }) {
     async function load() {
       try {
         const [cartRes, addressesRes, favRes, recentRes] = await Promise.all([
-          getCart(),
-          listAddresses(),
-          getFavoriteShops(),
-          getRecentShops(),
+          getCart(), listAddresses(), getFavoriteShops(), getRecentShops(),
         ]);
         setCart(cartRes);
         setAddresses(addressesRes);
@@ -103,29 +98,21 @@ export default function Checkout({ role }) {
 
   useEffect(() => {
     const timeout = setTimeout(() => {
-      const bias = selectedAddress?.location?.lat
-        ? { lat: selectedAddress.location.lat, lng: selectedAddress.location.lng }
-        : {};
-      searchShops({ search: searchQuery, ...bias })
-        .then(setSearchResults)
-        .catch((err) => setError(err.message));
+      const bias = selectedAddress?.location?.lat ? { lat: selectedAddress.location.lat, lng: selectedAddress.location.lng } : {};
+      searchShops({ search: searchQuery, ...bias }).then(setSearchResults).catch((err) => setError(err.message));
     }, 300);
     return () => clearTimeout(timeout);
   }, [searchQuery, selectedAddress]);
 
   // Real nearby shops from OpenStreetMap, based on the selected delivery
-  // address's coordinates — not the fixed 8-shop demo list. Best-effort:
-  // if this fails or the address has no coordinates yet, it just stays
-  // empty rather than blocking checkout.
+  // address's coordinates.
   useEffect(() => {
     const loc = selectedAddress?.location;
     if (!loc?.lat) {
       setNearbyRealShops([]);
       return;
     }
-    findNearbyShops(loc.lat, loc.lng)
-      .then(setNearbyRealShops)
-      .catch(() => setNearbyRealShops([]));
+    findNearbyShops(loc.lat, loc.lng).then(setNearbyRealShops).catch(() => setNearbyRealShops([]));
   }, [selectedAddress]);
 
   const handleAddAddress = async (form) => {
@@ -141,8 +128,6 @@ export default function Checkout({ role }) {
     setFavoriteShops(await getFavoriteShops());
   };
 
-  // Selecting a real (OpenStreetMap) place auto-fills the manual-shop
-  // fields instead of making the person retype an address they just saw.
   const handleSelectShop = (shop) => {
     if (shop.isRealPlace) {
       setManualShop({ name: shop.name, address: shop.address || shop.type, phone: "" });
@@ -151,6 +136,31 @@ export default function Checkout({ role }) {
     } else {
       setSelectedShopId(shop.id);
       setUseManualShop(false);
+    }
+  };
+
+  // Search shops in ANY city, not just near the delivery address — geocode
+  // the typed city name, then look up real shops around its center.
+  const handleCitySearch = async (e) => {
+    e.preventDefault();
+    if (!cityQuery.trim()) return;
+    setCitySearching(true);
+    setError("");
+    try {
+      const results = await searchAddress(cityQuery.trim());
+      if (results.length === 0) {
+        setCityShops([]);
+        setError("Couldn't find that city. Try a more specific name.");
+        return;
+      }
+      const place = results[0];
+      const shops = await findNearbyShops(place.lat, place.lng, 5000);
+      setCityShops(shops);
+      setCitySearchedLabel(place.city || cityQuery.trim());
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCitySearching(false);
     }
   };
 
@@ -174,7 +184,7 @@ export default function Checkout({ role }) {
         payload.shopId = selectedShopId;
       }
       const { order, droppedItems } = await placeOrder(payload);
-      await refreshCount(); // the cart was cleared server-side once the order was placed
+      await refreshCount();
       navigate("/requests", { state: { justPlacedOrderId: order.id, droppedItems } });
     } catch (err) {
       setError(err.message);
@@ -209,7 +219,8 @@ export default function Checkout({ role }) {
     { title: "Your favorites", shops: favoriteShops, favoritable: true },
     { title: "Recently used", shops: recentShops.filter((s) => !favoriteIds.has(s.id)), favoritable: true },
     { title: searchQuery ? "Search results" : "Saved shops nearby", shops: searchResults, favoritable: true },
-    { title: "Real shops near you", shops: nearbyRealShops, favoritable: false },
+    { title: "Real shops near your address", shops: nearbyRealShops, favoritable: false },
+    { title: citySearchedLabel ? `Shops in ${citySearchedLabel}` : "", shops: cityShops, favoritable: false },
   ].filter((s) => s.shops.length > 0);
 
   return (
@@ -222,16 +233,15 @@ export default function Checkout({ role }) {
         <div className="mt-3 space-y-2">
           {addresses.map((addr) => (
             <label key={addr.id} className={`flex items-start gap-3 rounded-xl p-3 cursor-pointer outline outline-1 ${selectedAddressId === addr.id ? "outline-pine bg-pine-light" : "outline-line bg-surface"}`}>
-              <input
-                type="radio"
-                name="address"
-                className="mt-1 h-4 w-4 accent-pine"
-                checked={selectedAddressId === addr.id}
-                onChange={() => setSelectedAddressId(addr.id)}
-              />
-              <div>
+              <input type="radio" name="address" className="mt-1 h-4 w-4 accent-pine" checked={selectedAddressId === addr.id} onChange={() => setSelectedAddressId(addr.id)} />
+              <div className="flex-1">
                 <div className="font-medium text-ink">{addr.label}</div>
                 <div className="text-sm text-ink-muted">{addr.addressLine1}, {addr.city}, {addr.state} — {addr.pincode}</div>
+                {!addr.location?.lat && (
+                  <div className="mt-1 flex items-center gap-1 text-xs text-marigold-deep">
+                    <AlertTriangle size={12} /> No map pin — volunteers won't see distance for this address
+                  </div>
+                )}
               </div>
             </label>
           ))}
@@ -246,14 +256,17 @@ export default function Checkout({ role }) {
 
       <div>
         <h2 className="font-display text-lg font-bold text-ink">Where should the volunteer shop?</h2>
+        <p className="text-sm text-ink-muted mt-1">Need items from two different shops? Place a separate order for each — each order has one shop and one volunteer.</p>
 
-        <input
-          type="search"
-          placeholder="Search shops by name"
-          value={searchQuery}
-          onChange={(e) => { setSearchQuery(e.target.value); setUseManualShop(false); }}
-          className={`${inputClass} mt-3`}
-        />
+        <input type="search" placeholder="Search saved shops by name" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setUseManualShop(false); }} className={`${inputClass} mt-3`} />
+
+        <form onSubmit={handleCitySearch} className="mt-3 flex gap-2">
+          <div className="relative flex-1">
+            <MapPin size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-muted" />
+            <input value={cityQuery} onChange={(e) => setCityQuery(e.target.value)} placeholder="Or search shops in a specific city" className={`${inputClass} pl-9`} />
+          </div>
+          <Button type="submit" variant="secondary" disabled={citySearching}>{citySearching ? "Searching..." : "Search"}</Button>
+        </form>
 
         <div className="mt-3 space-y-4">
           {shopSections.map((section) => (
@@ -264,11 +277,7 @@ export default function Checkout({ role }) {
                   <ShopCard
                     key={shop.id}
                     shop={shop}
-                    selected={
-                      shop.isRealPlace
-                        ? useManualShop && manualShop.name === shop.name
-                        : !useManualShop && selectedShopId === shop.id
-                    }
+                    selected={shop.isRealPlace ? useManualShop && manualShop.name === shop.name : !useManualShop && selectedShopId === shop.id}
                     onSelect={handleSelectShop}
                     isFavorite={favoriteIds.has(shop.id)}
                     onToggleFavorite={section.favoritable ? handleToggleFavorite : undefined}
@@ -278,23 +287,13 @@ export default function Checkout({ role }) {
             </div>
           ))}
 
-          {!selectedAddress?.location?.lat && (
-            <p className="text-sm text-ink-muted">
-              Add coordinates to your address (search it or use your current location) to see real shops near you.
-            </p>
-          )}
-          {searchQuery && searchResults.length === 0 && (
-            <p className="text-sm text-ink-muted">No saved shops found. You can enter one manually below.</p>
-          )}
-          {nearbyRealShops.length > 0 && (
-            <p className="text-xs text-ink-muted">Real shop data © OpenStreetMap contributors.</p>
-          )}
+          {searchQuery && searchResults.length === 0 && <p className="text-sm text-ink-muted">No saved shops found. You can enter one manually below.</p>}
+          {(nearbyRealShops.length > 0 || cityShops.length > 0) && <p className="text-xs text-ink-muted">Real shop data © OpenStreetMap contributors.</p>}
         </div>
 
         <div className="mt-4">
           <Button variant="secondary" onClick={() => { setUseManualShop(true); setSelectedShopId(""); }}>
-            <Store size={16} />
-            Enter a shop manually
+            <Store size={16} /> Enter a shop manually
           </Button>
           {useManualShop && (
             <div className="mt-3 space-y-3 rounded-xl bg-paper p-4 outline outline-1 outline-line">
@@ -331,18 +330,18 @@ export default function Checkout({ role }) {
 
       <Card className="p-4">
         <h2 className="font-display text-lg font-bold text-ink mb-2">Order summary</h2>
-        {cart.items.map((item) => item.product && (
-          <div key={item.product.id} className="py-1">
+        {cart.items.map((item) => (
+          <div key={item.id} className="py-1">
             <div className="flex justify-between text-sm text-ink">
-              <span>{item.product.name} × {item.quantity}</span>
-              <span>{formatPrice(item.subtotal)}</span>
+              <span>{item.isCustom ? item.name : item.product?.name} × {item.quantity}</span>
+              <span>{item.isCustom ? "priced at pickup" : `≈${formatPrice(item.subtotal)}`}</span>
             </div>
             {item.note && <div className="text-xs text-ink-muted italic">Note: {item.note}</div>}
           </div>
         ))}
         <div className="flex justify-between font-bold text-ink mt-2 pt-2 border-t border-line">
-          <span>Total</span>
-          <span>{formatPrice(cart.total)}</span>
+          <span>{cart.hasCustomItems ? "Estimated total" : "Total"}</span>
+          <span>≈{formatPrice(cart.total)}</span>
         </div>
       </Card>
 

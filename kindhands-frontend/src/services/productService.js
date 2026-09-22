@@ -13,6 +13,5 @@ export async function listProducts({ category, search, frequentlyOrdered, page =
   if (frequentlyOrdered) params.set("frequentlyOrdered", "true");
   params.set("page", page);
 
-  const data = await apiRequest(`/products?${params.toString()}`);
-  return data;
+  return apiRequest(`/products?${params.toString()}`);
 }

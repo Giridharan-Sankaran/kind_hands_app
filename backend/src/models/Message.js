@@ -8,8 +8,6 @@ const messageSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    // sender is null for system-generated messages (e.g. "Volunteer is on
-    // the way") so the UI can render them differently from a person typing.
     sender: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

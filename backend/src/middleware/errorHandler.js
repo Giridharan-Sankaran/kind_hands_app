@@ -11,13 +11,11 @@ function errorHandler(err, req, res, _next) {
     statusCode = err.statusCode;
     message = err.message;
   } else if (err.name === "ValidationError") {
-    // Mongoose schema validation error
     statusCode = 400;
     message = Object.values(err.errors)
       .map((e) => e.message)
       .join(" ");
   } else if (err.code === 11000) {
-    // Mongo duplicate key error
     statusCode = 409;
     const field = Object.keys(err.keyPattern || { field: 1 })[0];
     message =

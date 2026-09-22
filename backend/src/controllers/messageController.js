@@ -14,8 +14,6 @@ const listMessages = asyncHandler(async (req, res) => {
 });
 
 // POST /api/orders/:id/messages   { body }
-// Messaging only opens once a volunteer has accepted — there's no one on
-// the other end to message before that.
 const sendMessage = asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id);
   const { isOwnerElder, isAssignedVolunteer } = assertOrderAccess(order, req.user);

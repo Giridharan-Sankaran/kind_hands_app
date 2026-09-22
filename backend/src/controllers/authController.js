@@ -50,7 +50,6 @@ const login = asyncHandler(async (req, res) => {
   const valid = user && (await user.comparePassword(password));
 
   if (!valid || !user.isActive) {
-    // Deliberately generic — don't reveal whether the email exists.
     throw new ApiError(401, "Invalid email or password.");
   }
 

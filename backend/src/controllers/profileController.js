@@ -4,7 +4,6 @@ const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/ApiError");
 
 // GET /api/profile
-// Returns the logged-in user plus their role-specific profile document.
 const getMyProfile = asyncHandler(async (req, res) => {
   const { role, id } = req.user;
 
@@ -24,8 +23,8 @@ const getMyProfile = asyncHandler(async (req, res) => {
 
 // PATCH /api/profile
 // Updates only the fields that belong to the caller's own role profile —
-// an elder can never touch volunteer-only fields (or anyone else's data)
-// because the target document is looked up by req.user.id, not a body param.
+// the target document is looked up by req.user.id, not a body param, so
+// an elder can never touch volunteer-only fields or anyone else's data.
 const updateMyProfile = asyncHandler(async (req, res) => {
   const { role, id } = req.user;
 

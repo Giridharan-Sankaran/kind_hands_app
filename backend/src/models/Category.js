@@ -20,8 +20,6 @@ const categorySchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
-    // Tabler icon name, rendered by the frontend — keeps the icon set
-    // consistent without hardcoding image assets per category.
     icon: {
       type: String,
       trim: true,

@@ -23,10 +23,6 @@ const productSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
-    // Product photography isn't available in this environment — image
-    // upload/CDN storage gets wired up (via Cloud Storage or similar)
-    // once the admin dashboard (Phase 11) can manage it. Empty for now;
-    // the frontend falls back to a category icon.
     image: {
       type: String,
       trim: true,
@@ -37,6 +33,9 @@ const productSchema = new mongoose.Schema(
       required: [true, "Unit is required, e.g. '1 kg', '500 ml', '6 pcs'"],
       trim: true,
     },
+    // Approximate/reference price — there's no free API for a specific
+    // shop's real inventory or pricing, so this is a guide, not a
+    // guarantee. The volunteer confirms the actual cost at the shop.
     price: {
       type: Number,
       required: [true, "Price is required"],

@@ -14,9 +14,9 @@ const SIZES = {
   lg: "px-5 py-3.5 text-base",
 };
 
-// `as` lets this render as a react-router <Link> (as={Link} to="/x") while
-// still defaulting to a real <button type="button"> otherwise, so it never
-// accidentally submits a form it happens to sit inside.
+// `as` lets this render as a react-router <Link> (as={Link} to="/x") or a
+// plain <a> while still defaulting to a real <button type="button">
+// otherwise, so it never accidentally submits a form it happens to sit in.
 export default function Button({ variant = "primary", size = "md", as, className = "", ...props }) {
   const Comp = as || "button";
   const typeProps = as ? {} : { type: props.type || "button" };

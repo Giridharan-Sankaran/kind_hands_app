@@ -59,7 +59,6 @@ export default function NavBar({ user, role }) {
           <span className="font-display text-lg font-bold text-white">Kind Hands</span>
         </div>
 
-        {/* Desktop nav */}
         <div className="hidden md:flex items-center gap-1.5">
           {items.map((item) => (
             <NavItem key={item.to} {...item} />
@@ -82,7 +81,6 @@ export default function NavBar({ user, role }) {
           </button>
         </div>
 
-        {/* Mobile toggle */}
         <button
           className="md:hidden text-white p-2"
           onClick={() => setMobileOpen((o) => !o)}

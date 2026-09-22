@@ -17,9 +17,6 @@ function throwIfInvalid(req) {
   }
 }
 
-// The forward-only path a volunteer can advance an order through. Skipping
-// ahead or moving backward isn't allowed — each step is a distinct real
-// action (arriving at the shop, finishing shopping, etc).
 const STATUS_SEQUENCE = [
   "volunteer_assigned",
   "going_to_shop",
@@ -40,9 +37,11 @@ const STATUS_MESSAGES = {
 };
 
 // POST /api/orders  (elder)
-// Converts the elder's current cart into an order. Prices are snapshotted
-// at this moment — later catalog price changes never retroactively alter
-// a placed order.
+// Converts the elder's current cart into an order. Catalog items snapshot
+// their price at this moment; custom (free-text) items carry no price —
+// there's no catalog record to have priced them in the first place, so
+// they contribute nothing to itemsTotal until the volunteer actually buys
+// them and the real cost is known.
 const createOrder = asyncHandler(async (req, res) => {
   throwIfInvalid(req);
   const { addressId, shopId, manualShop, shoppingNotes, deliveryInstructions } = req.body;
@@ -52,24 +51,35 @@ const createOrder = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Your cart is empty.");
   }
 
-  const availableItems = cart.items.filter((i) => i.product && i.product.isAvailable);
+  const availableItems = cart.items.filter((i) => i.isCustom || (i.product && i.product.isAvailable));
   const droppedItems = cart.items
-    .filter((i) => !i.product || !i.product.isAvailable)
+    .filter((i) => !i.isCustom && (!i.product || !i.product.isAvailable))
     .map((i) => (i.product ? i.product.name : "An item that was removed from the catalog"));
 
   if (availableItems.length === 0) {
     throw new ApiError(400, "None of the items in your cart are available right now.");
   }
 
-  const orderItems = availableItems.map((i) => ({
-    product: i.product._id,
-    name: i.product.name,
-    unit: i.product.unit,
-    quantity: i.quantity,
-    priceAtOrder: i.product.price,
-    note: i.note || "",
-  }));
-  const itemsTotal = orderItems.reduce((sum, i) => sum + i.priceAtOrder * i.quantity, 0);
+  const orderItems = availableItems.map((i) =>
+    i.isCustom
+      ? {
+          isCustom: true,
+          name: i.customName,
+          unit: i.customUnit || "as noted",
+          quantity: i.quantity,
+          priceAtOrder: null,
+          note: i.note || "",
+        }
+      : {
+          product: i.product._id,
+          name: i.product.name,
+          unit: i.product.unit,
+          quantity: i.quantity,
+          priceAtOrder: i.product.price,
+          note: i.note || "",
+        }
+  );
+  const itemsTotal = orderItems.reduce((sum, i) => sum + (i.priceAtOrder || 0) * i.quantity, 0);
 
   const address = await Address.findOne({ _id: addressId, user: req.user.id });
   if (!address) {
@@ -133,20 +143,8 @@ const listMyOrders = asyncHandler(async (req, res) => {
 });
 
 // GET /api/orders/available  (volunteer) — the marketplace.
-//
-// Two modes:
-//  - City mode (?city=...): a manual override — filter purely by matching
-//    the order's delivery city, ignoring GPS entirely. For volunteers who'd
-//    rather type a place name than share their location.
-//  - Distance mode (default): haversine distance from the volunteer's
-//    browser-supplied location. Critically, once the volunteer HAS a
-//    location set, an order whose distance we can't compute is EXCLUDED,
-//    not shown anyway — showing unmeasured orders as if they were "nearby"
-//    is exactly the bug that let a volunteer in one country see an order
-//    across the world. Only when the volunteer has no location at all do
-//    we fall back to showing everything (with locationEnabled: false so
-//    the UI can prompt them to set one).
-//
+// See earlier revision notes: only shows orders within range once the
+// volunteer has a location set; a manual city search is available too.
 // Privacy: only city/state and computed distance are exposed here — never
 // the elder's name, phone, exact street address, landmark, or pincode.
 const listAvailableOrders = asyncHandler(async (req, res) => {
@@ -181,7 +179,7 @@ const listAvailableOrders = asyncHandler(async (req, res) => {
 
     results = hasVolunteerLocation
       ? withDistance.filter(({ distance }) => distance !== null && distance <= profile.maxDistanceKm)
-      : withDistance; // no location set at all — show everything, UI prompts to set one
+      : withDistance;
   }
 
   results.sort((a, b) => {
@@ -196,7 +194,7 @@ const listAvailableOrders = asyncHandler(async (req, res) => {
     locationEnabled,
     orders: results.map(({ order, distance }) => ({
       id: order.id,
-      items: order.items.map((i) => ({ name: i.name, unit: i.unit, quantity: i.quantity })),
+      items: order.items.map((i) => ({ name: i.name, unit: i.unit, quantity: i.quantity, isCustom: i.isCustom })),
       itemsTotal: order.itemsTotal,
       shop: { name: order.shop.name, address: order.shop.address, isManualEntry: order.shop.isManualEntry },
       deliveryArea: { city: order.deliveryAddress.city, state: order.deliveryAddress.state },
@@ -213,7 +211,8 @@ const listMyAssignedOrders = asyncHandler(async (req, res) => {
 });
 
 // GET /api/orders/:id — visible to the owning elder, the assigned
-// volunteer, or an admin.
+// volunteer, or an admin. Once a volunteer is assigned, their completed-
+// delivery count and rating are attached as a trust signal for the elder.
 const getOrder = asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id)
     .populate("elder", "name phone")
@@ -221,16 +220,20 @@ const getOrder = asyncHandler(async (req, res) => {
 
   assertOrderAccess(order, req.user);
 
-  res.json({ success: true, order });
+  const response = order.toJSON();
+  if (order.volunteer) {
+    const volunteerProfile = await VolunteerProfile.findOne({ user: order.volunteer._id });
+    response.volunteer.completedDeliveries = volunteerProfile?.completedDeliveries ?? 0;
+    response.volunteer.rating = volunteerProfile?.rating ?? 0;
+  }
+
+  res.json({ success: true, order: response });
 });
 
 // POST /api/orders/:id/accept  (volunteer)
-// The atomic core of the marketplace: findOneAndUpdate only succeeds if
-// the order is STILL unassigned at the moment MongoDB applies the write.
-// If two volunteers hit accept at the same instant, MongoDB serializes the
-// two writes — the first one through wins, and the second one's filter no
-// longer matches, so it gets null back and a clean 409 instead of a silent
-// double-assignment.
+// Atomic: findOneAndUpdate only succeeds if the order is STILL unassigned
+// at the moment MongoDB applies the write, so two simultaneous accepts
+// can't both win — the loser gets a clean 409 instead.
 const acceptOrder = asyncHandler(async (req, res) => {
   const profile = await VolunteerProfile.findOne({ user: req.user.id });
   if (!profile || !profile.isAvailable) {
@@ -257,6 +260,7 @@ const acceptOrder = asyncHandler(async (req, res) => {
 
 // PATCH /api/orders/:id/status  (volunteer, assigned only)   { status }
 // Moves the order exactly one step forward through STATUS_SEQUENCE.
+// Reaching 'delivered' also credits the volunteer's completed-delivery count.
 const updateOrderStatus = asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id);
   if (!order) {
@@ -270,12 +274,16 @@ const updateOrderStatus = asyncHandler(async (req, res) => {
   const nextStatus = STATUS_SEQUENCE[currentIndex + 1];
 
   if (!nextStatus || req.body.status !== nextStatus) {
-    throw new ApiError(400, `This order isn't ready to move to that status yet.`);
+    throw new ApiError(400, "This order isn't ready to move to that status yet.");
   }
 
   order.status = nextStatus;
   order.statusHistory.push({ status: nextStatus, changedBy: req.user.id });
   await order.save();
+
+  if (nextStatus === "delivered") {
+    await VolunteerProfile.findOneAndUpdate({ user: req.user.id }, { $inc: { completedDeliveries: 1 } });
+  }
 
   if (STATUS_MESSAGES[nextStatus]) {
     await postSystemMessage(order._id, STATUS_MESSAGES[nextStatus]);
@@ -285,9 +293,6 @@ const updateOrderStatus = asyncHandler(async (req, res) => {
 });
 
 // PATCH /api/orders/:id/location  (volunteer, assigned only)   { lat, lng }
-// Only accepted while the order is actively out for delivery — the
-// volunteer's live position is not something we store or broadcast outside
-// that window.
 const updateLiveLocation = asyncHandler(async (req, res) => {
   const { lat, lng } = req.body;
   if (typeof lat !== "number" || typeof lng !== "number") {
@@ -295,11 +300,7 @@ const updateLiveLocation = asyncHandler(async (req, res) => {
   }
 
   const order = await Order.findOneAndUpdate(
-    {
-      _id: req.params.id,
-      volunteer: req.user.id,
-      status: { $in: ["heading_to_elder", "arrived"] },
-    },
+    { _id: req.params.id, volunteer: req.user.id, status: { $in: ["heading_to_elder", "arrived"] } },
     { $set: { volunteerLiveLocation: { lat, lng, updatedAt: new Date() } } },
     { new: true }
   );
@@ -311,9 +312,7 @@ const updateLiveLocation = asyncHandler(async (req, res) => {
   res.json({ success: true, volunteerLiveLocation: order.volunteerLiveLocation });
 });
 
-// POST /api/orders/:id/cancel  (elder)
-// Only cancellable before a volunteer has accepted — once assigned,
-// cancellation needs to notify the volunteer first, which is future work.
+// POST /api/orders/:id/cancel  (elder) — only before a volunteer accepts.
 const cancelOrder = asyncHandler(async (req, res) => {
   const order = await Order.findOneAndUpdate(
     { _id: req.params.id, elder: req.user.id, status: "searching_volunteer" },

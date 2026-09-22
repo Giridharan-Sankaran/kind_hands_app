@@ -1,7 +1,5 @@
 const mongoose = require("mongoose");
 
-// Full addresses and emergency contacts live in their own collections
-// (Address, EmergencyContact) since they're managed independently.
 const elderProfileSchema = new mongoose.Schema(
   {
     user: {

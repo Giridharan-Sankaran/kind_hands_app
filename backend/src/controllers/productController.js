@@ -19,7 +19,6 @@ const listProducts = asyncHandler(async (req, res) => {
   if (category) filter.category = category;
   if (frequentlyOrdered === "true") filter.isFrequentlyOrdered = true;
   if (search) {
-    // Case-insensitive partial match, so an elder typing "ric" still finds "Rice".
     filter.name = { $regex: search.trim(), $options: "i" };
   }
 

@@ -55,7 +55,6 @@ export default function Register({ onLogin }) {
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row">
-      {/* Brand panel */}
       <div className="bg-pine-deep text-white px-8 py-12 md:w-1/2 md:flex md:flex-col md:justify-center">
         <div className="max-w-sm mx-auto md:mx-0">
           <div className="flex items-center gap-3">
@@ -71,7 +70,6 @@ export default function Register({ onLogin }) {
         </div>
       </div>
 
-      {/* Form panel */}
       <div className="flex-1 flex items-center justify-center px-6 py-12 bg-paper">
         <div className="w-full max-w-sm">
           <h2 className="font-display text-2xl font-bold text-ink">Create your account</h2>

@@ -41,9 +41,7 @@ export async function searchAddress(query) {
   return data.map(parseNominatimAddress);
 }
 
-// Reverse geocoding: turns a GPS pin into a fillable address — this is
-// what makes "use my current location" actually populate the form fields
-// instead of just silently storing a lat/lng nobody can see.
+// Reverse geocoding: turns a GPS pin into a fillable address.
 export async function reverseGeocode(lat, lng) {
   const params = new URLSearchParams({ format: "jsonv2", lat, lon: lng, addressdetails: "1" });
   const res = await fetch(`${NOMINATIM_BASE}/reverse?${params.toString()}`, {

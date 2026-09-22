@@ -10,9 +10,6 @@ function throwIfInvalid(req) {
   }
 }
 
-// Every handler scopes queries to req.user.id — an elder can only ever
-// see or modify their own addresses, regardless of what id is in the URL.
-
 const listAddresses = asyncHandler(async (req, res) => {
   const addresses = await Address.find({ user: req.user.id }).sort({ isDefault: -1, createdAt: -1 });
   res.json({ success: true, addresses });
@@ -37,7 +34,6 @@ const createAddress = asyncHandler(async (req, res) => {
     state,
     pincode,
     ...(location && typeof location.lat === "number" && typeof location.lng === "number" && { location }),
-    // The very first address a person adds becomes their default automatically.
     isDefault: isDefault || existingCount === 0,
   });
 
@@ -86,8 +82,6 @@ const deleteAddress = asyncHandler(async (req, res) => {
     throw new ApiError(404, "We couldn't find that address.");
   }
 
-  // If the deleted address was the default, promote the most recent
-  // remaining one so there's always a sensible default when one exists.
   if (address.isDefault) {
     const next = await Address.findOne({ user: req.user.id }).sort({ createdAt: -1 });
     if (next) {

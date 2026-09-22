@@ -17,8 +17,7 @@ export function CartProvider({ role, children }) {
       const cart = await getCart();
       setItemCount(countItems(cart));
     } catch {
-      // A failed background refresh shouldn't interrupt browsing —
-      // whatever page triggered the change already surfaces its own error.
+      // A failed background refresh shouldn't interrupt browsing.
     }
   }, [role]);
 

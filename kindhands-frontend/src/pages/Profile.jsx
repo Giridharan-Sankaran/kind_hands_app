@@ -1,6 +1,6 @@
 // src/pages/Profile.jsx
 import React, { useEffect, useState } from "react";
-import { MapPin, Phone, Star, Navigation, UserRound } from "lucide-react";
+import { MapPin, Phone, Navigation, UserRound, AlertTriangle, Package } from "lucide-react";
 import { getMyProfile, updateMyProfile } from "../services/profileService";
 import {
   listAddresses,
@@ -16,7 +16,9 @@ import {
   deleteContact,
 } from "../services/emergencyContactService";
 import AddressForm from "../components/AddressForm";
+import LocationPreviewMap from "../components/LocationPreviewMap";
 import { getCurrentPosition } from "../services/geolocation";
+import { reverseGeocode } from "../services/geocodingService";
 import { inputClass, labelClass, dangerBtn } from "../styles/formClasses";
 import Card from "../components/ui/Card";
 import Badge from "../components/ui/Badge";
@@ -29,7 +31,6 @@ function ContactForm({ initial, onCancel, onSave }) {
   const [form, setForm] = useState(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value });
 
   const submit = async (e) => {
@@ -90,14 +91,14 @@ export default function Profile({ user, role }) {
   const [editingContactId, setEditingContactId] = useState(null);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState("");
+  const [locationLabel, setLocationLabel] = useState("");
+  const [pinningAddressId, setPinningAddressId] = useState(null);
 
   useEffect(() => {
     async function load() {
       try {
         const tasks = [getMyProfile()];
-        if (role === "elder") {
-          tasks.push(listAddresses(), listContacts());
-        }
+        if (role === "elder") tasks.push(listAddresses(), listContacts());
         const [profileRes, addressesRes, contactsRes] = await Promise.all(tasks);
         setProfile(profileRes);
         if (role === "elder") {
@@ -112,6 +113,20 @@ export default function Profile({ user, role }) {
     }
     load();
   }, [role]);
+
+  // Whenever we know the volunteer's coordinates (on load or after an
+  // update), turn them into a readable place name for the preview.
+  useEffect(() => {
+    const loc = profile?.currentLocation;
+    if (loc?.lat == null) {
+      setLocationLabel("");
+      return;
+    }
+    reverseGeocode(loc.lat, loc.lng)
+      .then((place) => setLocationLabel([place.city, place.state].filter(Boolean).join(", ")))
+      .catch(() => setLocationLabel(""));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.currentLocation?.lat, profile?.currentLocation?.lng]);
 
   const handleSaveAddress = async (form) => {
     if (editingAddressId) {
@@ -134,6 +149,23 @@ export default function Profile({ user, role }) {
     setAddresses(await listAddresses());
   };
 
+  // Quick pin: assumes the person is physically at that address right now
+  // (the common case — pinning "Home" while at home) rather than opening
+  // the full edit form just to add a location.
+  const handleQuickPin = async (addressId) => {
+    setPinningAddressId(addressId);
+    setError("");
+    try {
+      const { lat, lng } = await getCurrentPosition();
+      await updateAddress(addressId, { location: { lat, lng } });
+      setAddresses(await listAddresses());
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPinningAddressId(null);
+    }
+  };
+
   const handleSaveContact = async (form) => {
     if (editingContactId) {
       await updateContact(editingContactId, form);
@@ -151,13 +183,11 @@ export default function Profile({ user, role }) {
   };
 
   const handleLanguageChange = async (e) => {
-    const updated = await updateMyProfile({ preferredLanguage: e.target.value });
-    setProfile(updated);
+    setProfile(await updateMyProfile({ preferredLanguage: e.target.value }));
   };
 
   const handleVolunteerChange = async (field, value) => {
-    const updated = await updateMyProfile({ [field]: value });
-    setProfile(updated);
+    setProfile(await updateMyProfile({ [field]: value }));
   };
 
   const handleUpdateLocation = async () => {
@@ -165,8 +195,7 @@ export default function Profile({ user, role }) {
     setLocationError("");
     try {
       const location = await getCurrentPosition();
-      const updated = await updateMyProfile({ currentLocation: location });
-      setProfile(updated);
+      setProfile(await updateMyProfile({ currentLocation: location }));
     } catch (err) {
       setLocationError(err.message);
     } finally {
@@ -205,11 +234,7 @@ export default function Profile({ user, role }) {
         <>
           <div>
             <SectionHeading>Preferred language</SectionHeading>
-            <select
-              className={`${inputClass} mt-2 max-w-xs`}
-              value={profile?.preferredLanguage || "en"}
-              onChange={handleLanguageChange}
-            >
+            <select className={`${inputClass} mt-2 max-w-xs`} value={profile?.preferredLanguage || "en"} onChange={handleLanguageChange}>
               <option value="en">English</option>
               <option value="hi">हिंदी (Hindi)</option>
               <option value="ta">தமிழ் (Tamil)</option>
@@ -217,22 +242,12 @@ export default function Profile({ user, role }) {
           </div>
 
           <div>
-            <SectionHeading
-              action={
-                !addingAddress && (
-                  <Button variant="secondary" onClick={() => { setAddingAddress(true); setEditingAddressId(null); }}>
-                    + Add address
-                  </Button>
-                )
-              }
-            >
+            <SectionHeading action={!addingAddress && <Button variant="secondary" onClick={() => { setAddingAddress(true); setEditingAddressId(null); }}>+ Add address</Button>}>
               Your addresses
             </SectionHeading>
 
             <div className="mt-3 space-y-3">
-              {addingAddress && (
-                <AddressForm initial={EMPTY_ADDRESS} onCancel={() => setAddingAddress(false)} onSave={handleSaveAddress} />
-              )}
+              {addingAddress && <AddressForm initial={EMPTY_ADDRESS} onCancel={() => setAddingAddress(false)} onSave={handleSaveAddress} />}
 
               {addresses.length === 0 && !addingAddress && (
                 <Card className="p-6 text-center">
@@ -243,12 +258,7 @@ export default function Profile({ user, role }) {
 
               {addresses.map((addr) =>
                 editingAddressId === addr.id ? (
-                  <AddressForm
-                    key={addr.id}
-                    initial={addr}
-                    onCancel={() => setEditingAddressId(null)}
-                    onSave={handleSaveAddress}
-                  />
+                  <AddressForm key={addr.id} initial={addr} onCancel={() => setEditingAddressId(null)} onSave={handleSaveAddress} />
                 ) : (
                   <Card key={addr.id} className="p-4">
                     <div className="flex items-start gap-3">
@@ -264,11 +274,23 @@ export default function Profile({ user, role }) {
                           {addr.addressLine1}{addr.landmark ? `, near ${addr.landmark}` : ""}<br />
                           {addr.city}, {addr.state} — {addr.pincode}
                         </div>
+                        {!addr.location?.lat && (
+                          <div className="mt-2 flex items-center gap-2 flex-wrap">
+                            <span className="flex items-center gap-1 text-xs text-marigold-deep">
+                              <AlertTriangle size={12} /> No map pin — volunteers can't see distance to this address
+                            </span>
+                            <button
+                              onClick={() => handleQuickPin(addr.id)}
+                              disabled={pinningAddressId === addr.id}
+                              className="text-xs font-semibold text-pine hover:text-pine-deep"
+                            >
+                              {pinningAddressId === addr.id ? "Pinning..." : "Pin my current location here"}
+                            </button>
+                          </div>
+                        )}
                         <div className="mt-3 flex gap-4 text-sm">
                           <button className="font-semibold text-pine hover:text-pine-deep" onClick={() => { setEditingAddressId(addr.id); setAddingAddress(false); }}>Edit</button>
-                          {!addr.isDefault && (
-                            <button className="font-semibold text-pine hover:text-pine-deep" onClick={() => handleSetDefault(addr.id)}>Set as default</button>
-                          )}
+                          {!addr.isDefault && <button className="font-semibold text-pine hover:text-pine-deep" onClick={() => handleSetDefault(addr.id)}>Set as default</button>}
                           <button className={dangerBtn} onClick={() => handleDeleteAddress(addr.id)}>Delete</button>
                         </div>
                       </div>
@@ -280,22 +302,12 @@ export default function Profile({ user, role }) {
           </div>
 
           <div>
-            <SectionHeading
-              action={
-                !addingContact && (
-                  <Button variant="secondary" onClick={() => { setAddingContact(true); setEditingContactId(null); }}>
-                    + Add contact
-                  </Button>
-                )
-              }
-            >
+            <SectionHeading action={!addingContact && <Button variant="secondary" onClick={() => { setAddingContact(true); setEditingContactId(null); }}>+ Add contact</Button>}>
               Emergency contacts
             </SectionHeading>
 
             <div className="mt-3 space-y-3">
-              {addingContact && (
-                <ContactForm initial={EMPTY_CONTACT} onCancel={() => setAddingContact(false)} onSave={handleSaveContact} />
-              )}
+              {addingContact && <ContactForm initial={EMPTY_CONTACT} onCancel={() => setAddingContact(false)} onSave={handleSaveContact} />}
 
               {contacts.length === 0 && !addingContact && (
                 <Card className="p-6 text-center">
@@ -306,12 +318,7 @@ export default function Profile({ user, role }) {
 
               {contacts.map((c) =>
                 editingContactId === c.id ? (
-                  <ContactForm
-                    key={c.id}
-                    initial={c}
-                    onCancel={() => setEditingContactId(null)}
-                    onSave={handleSaveContact}
-                  />
+                  <ContactForm key={c.id} initial={c} onCancel={() => setEditingContactId(null)} onSave={handleSaveContact} />
                 ) : (
                   <Card key={c.id} className="p-4">
                     <div className="flex items-start gap-3">
@@ -323,9 +330,7 @@ export default function Profile({ user, role }) {
                           {c.name}
                           {c.isPrimary && <Badge tone="marigold">Primary</Badge>}
                         </div>
-                        <div className="text-ink-muted text-sm mt-1">
-                          {c.relationship && `${c.relationship} · `}{c.phone}
-                        </div>
+                        <div className="text-ink-muted text-sm mt-1">{c.relationship && `${c.relationship} · `}{c.phone}</div>
                         <div className="mt-3 flex gap-4 text-sm">
                           <button className="font-semibold text-pine hover:text-pine-deep" onClick={() => { setEditingContactId(c.id); setAddingContact(false); }}>Edit</button>
                           <button className={dangerBtn} onClick={() => handleDeleteContact(c.id)}>Delete</button>
@@ -341,50 +346,59 @@ export default function Profile({ user, role }) {
       )}
 
       {role === "volunteer" && (
-        <div>
-          <SectionHeading>Service settings</SectionHeading>
-          <Card className="mt-3 p-4 space-y-5">
+        <>
+          <Card className="p-4 flex items-center gap-4">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-moss-light text-moss">
+              <Package size={20} />
+            </span>
             <div>
-              <label className={labelClass}>Maximum distance you're willing to travel</label>
-              <select
-                className={`${inputClass} max-w-xs`}
-                value={profile?.maxDistanceKm || 10}
-                onChange={(e) => handleVolunteerChange("maxDistanceKm", Number(e.target.value))}
-              >
-                <option value={5}>5 km</option>
-                <option value={10}>10 km</option>
-                <option value={15}>15 km</option>
-                <option value={20}>20 km</option>
-              </select>
-            </div>
-
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                id="available"
-                type="checkbox"
-                className="h-5 w-5 accent-pine"
-                checked={!!profile?.isAvailable}
-                onChange={(e) => handleVolunteerChange("isAvailable", e.target.checked)}
-              />
-              <span className="text-ink">I'm currently available to accept orders</span>
-              {profile?.isAvailable && <Badge tone="moss" className="ml-auto">Available</Badge>}
-            </label>
-
-            <div className="pt-1 border-t border-line">
-              <Button variant="secondary" onClick={handleUpdateLocation} disabled={locating} className="mt-4">
-                <Navigation size={16} />
-                {locating ? "Getting your location..." : "Update my current location"}
-              </Button>
-              <p className="mt-2 text-xs text-ink-muted flex items-center gap-1">
-                <Star size={12} className="shrink-0" />
-                {profile?.currentLocation?.lat != null
-                  ? "We'll use this to show you nearby orders first."
-                  : "Set your location so nearby orders can find you."}
-              </p>
-              {locationError && <p className="mt-1 text-sm text-clay">{locationError}</p>}
+              <div className="text-2xl font-bold text-ink">{profile?.completedDeliveries || 0}</div>
+              <div className="text-sm text-ink-muted">Deliveries completed</div>
             </div>
           </Card>
-        </div>
+
+          <div>
+            <SectionHeading>Service settings</SectionHeading>
+            <Card className="mt-3 p-4 space-y-5">
+              <div>
+                <label className={labelClass}>Maximum distance you're willing to travel</label>
+                <select className={`${inputClass} max-w-xs`} value={profile?.maxDistanceKm || 10} onChange={(e) => handleVolunteerChange("maxDistanceKm", Number(e.target.value))}>
+                  <option value={5}>5 km</option>
+                  <option value={10}>10 km</option>
+                  <option value={15}>15 km</option>
+                  <option value={20}>20 km</option>
+                </select>
+              </div>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" className="h-5 w-5 accent-pine" checked={!!profile?.isAvailable} onChange={(e) => handleVolunteerChange("isAvailable", e.target.checked)} />
+                <span className="text-ink">I'm currently available to accept orders</span>
+                {profile?.isAvailable && <Badge tone="moss" className="ml-auto">Available</Badge>}
+              </label>
+
+              <div className="pt-1 border-t border-line">
+                <Button variant="secondary" onClick={handleUpdateLocation} disabled={locating} className="mt-4">
+                  <Navigation size={16} />
+                  {locating ? "Getting your location..." : "Update my current location"}
+                </Button>
+
+                {profile?.currentLocation?.lat != null && (
+                  <div className="mt-3">
+                    <LocationPreviewMap lat={profile.currentLocation.lat} lng={profile.currentLocation.lng} />
+                    <p className="mt-2 text-sm text-ink-muted flex items-center gap-1">
+                      <MapPin size={14} />
+                      {locationLabel || "Looking up place name..."}
+                    </p>
+                  </div>
+                )}
+                {profile?.currentLocation?.lat == null && (
+                  <p className="mt-2 text-xs text-ink-muted">Set your location so nearby orders can find you.</p>
+                )}
+                {locationError && <p className="mt-1 text-sm text-clay">{locationError}</p>}
+              </div>
+            </Card>
+          </div>
+        </>
       )}
     </div>
   );

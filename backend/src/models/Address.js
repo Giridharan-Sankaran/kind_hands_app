@@ -45,8 +45,9 @@ const addressSchema = new mongoose.Schema(
       trim: true,
       match: [/^\d{6}$/, "Please enter a valid 6-digit pincode"],
     },
-    // GPS coordinates are added in Phase 6, once volunteer distance
-    // matching needs them — kept as an optional placeholder for now.
+    // Populated via reverse geocoding (OpenStreetMap Nominatim) or the
+    // browser's "use my location" — optional, but strongly encouraged:
+    // without it, a volunteer can't be matched to this address by distance.
     location: {
       lat: { type: Number, default: null },
       lng: { type: Number, default: null },

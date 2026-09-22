@@ -14,11 +14,6 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
-/**
- * apiRequest
- * Thin wrapper around fetch that attaches the JWT, parses JSON, and
- * normalizes errors into a friendly message string.
- */
 export async function apiRequest(path, { method = "GET", body, auth = true } = {}) {
   const headers = { "Content-Type": "application/json" };
   if (auth) {
@@ -41,7 +36,7 @@ export async function apiRequest(path, { method = "GET", body, auth = true } = {
   try {
     data = await res.json();
   } catch {
-    // No JSON body (e.g. a plain 204) — that's fine.
+    // No JSON body — fine.
   }
 
   if (!res.ok) {

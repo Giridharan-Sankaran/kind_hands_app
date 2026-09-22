@@ -1,7 +1,7 @@
 // src/pages/OrderDetail.jsx
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Phone, Store, MapPin, UserRound } from "lucide-react";
+import { ArrowLeft, Phone, Store, MapPin, UserRound, Navigation2, Package } from "lucide-react";
 import { getOrder, updateOrderStatus, updateLiveLocation, cancelOrder } from "../services/orderService";
 import { STATUS_LABELS, STATUS_TONES, STATUS_FLOW } from "../constants/orderStatus";
 import Card from "../components/ui/Card";
@@ -16,6 +16,16 @@ const TRACKING_STATUSES = ["heading_to_elder", "arrived"];
 
 function formatPrice(n) {
   return `₹${Number(n).toFixed(0)}`;
+}
+
+// Free, keyless deep link — opens Google Maps (app or web) with directions
+// pre-filled. Falls back to a text search if we don't have coordinates.
+function directionsUrl(address) {
+  if (address?.location?.lat != null) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${address.location.lat},${address.location.lng}`;
+  }
+  const text = [address?.addressLine1, address?.city, address?.state].filter(Boolean).join(", ");
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(text)}`;
 }
 
 export default function OrderDetail({ user, role }) {
@@ -46,9 +56,6 @@ export default function OrderDetail({ user, role }) {
   const isMyOrderAsVolunteer = role === "volunteer" && order?.volunteer?.id === user.id;
   const isMyOrderAsElder = role === "elder" && order?.elder?.id === user.id;
 
-  // Share live location via the browser's continuous GPS watch, only while
-  // this volunteer's own delivery is actively out for delivery — not
-  // before, not after, and not for anyone else's order.
   useEffect(() => {
     const shouldTrack = isMyOrderAsVolunteer && order && TRACKING_STATUSES.includes(order.status);
 
@@ -60,21 +67,16 @@ export default function OrderDetail({ user, role }) {
       return;
     }
 
-    if (watchIdRef.current !== null) return; // already watching
+    if (watchIdRef.current !== null) return;
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
         const now = Date.now();
         if (now - lastSentRef.current < LOCATION_SEND_THROTTLE_MS) return;
         lastSentRef.current = now;
-        updateLiveLocation(id, pos.coords.latitude, pos.coords.longitude).catch(() => {
-          // Non-fatal — the next watchPosition tick will retry.
-        });
+        updateLiveLocation(id, pos.coords.latitude, pos.coords.longitude).catch(() => {});
       },
-      () => {
-        // Permission denied or unavailable — tracking simply won't update;
-        // the rest of the order flow still works without it.
-      },
+      () => {},
       { enableHighAccuracy: true, maximumAge: 5000 }
     );
 
@@ -117,6 +119,7 @@ export default function OrderDetail({ user, role }) {
   const flowStep = STATUS_FLOW.find((s) => s.from === order.status);
   const isTracking = TRACKING_STATUSES.includes(order.status);
   const otherParty = role === "elder" ? order.volunteer : order.elder;
+  const estimatedLabel = order.items.some((i) => i.isCustom) ? "Estimated total" : "Total";
 
   return (
     <div className="max-w-2xl mx-auto mt-2 pb-16">
@@ -137,10 +140,14 @@ export default function OrderDetail({ user, role }) {
             homeLocation={order.deliveryAddress?.location?.lat != null ? order.deliveryAddress.location : null}
             volunteerLocation={order.volunteerLiveLocation?.lat != null ? order.volunteerLiveLocation : null}
           />
-          {!order.volunteerLiveLocation?.lat && (
-            <p className="mt-2 text-xs text-ink-muted text-center">Waiting for live location to update...</p>
-          )}
+          {!order.volunteerLiveLocation?.lat && <p className="mt-2 text-xs text-ink-muted text-center">Waiting for live location to update...</p>}
         </Card>
+      )}
+
+      {isMyOrderAsVolunteer && (
+        <Button as="a" href={directionsUrl(order.deliveryAddress)} target="_blank" rel="noopener noreferrer" variant="secondary" className="mt-4 w-full">
+          <Navigation2 size={16} /> Get directions to delivery address
+        </Button>
       )}
 
       <Card className="mt-4 p-4 space-y-3">
@@ -158,9 +165,7 @@ export default function OrderDetail({ user, role }) {
             </span>
           </div>
         )}
-        {order.deliveryInstructions && (
-          <p className="text-sm text-ink-muted italic">Delivery note: {order.deliveryInstructions}</p>
-        )}
+        {order.deliveryInstructions && <p className="text-sm text-ink-muted italic">Delivery note: {order.deliveryInstructions}</p>}
       </Card>
 
       {otherParty && (
@@ -170,7 +175,14 @@ export default function OrderDetail({ user, role }) {
           </span>
           <div className="flex-1">
             <div className="font-semibold text-ink">{otherParty.name}</div>
-            <div className="text-sm text-ink-muted capitalize">{role === "elder" ? "Volunteer" : "Elder"}</div>
+            <div className="text-sm text-ink-muted capitalize flex items-center gap-1.5">
+              {role === "elder" ? "Volunteer" : "Elder"}
+              {role === "elder" && (
+                <span className="flex items-center gap-1 text-ink-muted">
+                  · <Package size={12} /> {otherParty.completedDeliveries ?? 0} completed
+                </span>
+              )}
+            </div>
           </div>
           {otherParty.phone && (
             <Button as="a" href={`tel:${otherParty.phone}`} variant="secondary">
@@ -185,19 +197,17 @@ export default function OrderDetail({ user, role }) {
         {order.items.map((item) => (
           <div key={item._id || item.name} className="py-1.5 border-b border-line last:border-0">
             <div className="flex justify-between text-sm text-ink">
-              <span>{item.name} × {item.quantity}</span>
-              <span>{formatPrice(item.priceAtOrder * item.quantity)}</span>
+              <span>{item.name} × {item.quantity}{item.unit ? ` (${item.unit})` : ""}</span>
+              <span>{item.isCustom ? "priced at pickup" : formatPrice(item.priceAtOrder * item.quantity)}</span>
             </div>
             {item.note && <div className="text-xs text-ink-muted italic mt-0.5">Note: {item.note}</div>}
           </div>
         ))}
         <div className="flex justify-between font-bold text-ink mt-3 pt-2 border-t border-line">
-          <span>Total</span>
+          <span>{estimatedLabel}</span>
           <span>{formatPrice(order.itemsTotal)}</span>
         </div>
-        {order.shoppingNotes && (
-          <p className="mt-2 text-sm text-ink-muted italic">Shopping notes: {order.shoppingNotes}</p>
-        )}
+        {order.shoppingNotes && <p className="mt-2 text-sm text-ink-muted italic">Shopping notes: {order.shoppingNotes}</p>}
       </Card>
 
       {isMyOrderAsVolunteer && flowStep && (

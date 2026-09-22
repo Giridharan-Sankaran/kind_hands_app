@@ -43,9 +43,6 @@ const shopSchema = new mongoose.Schema(
       trim: true,
       default: "Grocery store",
     },
-    // Populated from admin entry or an elder's "use my location" pin —
-    // no automatic address-to-coordinates geocoding is wired up (that
-    // needs a paid maps API key this environment doesn't have).
     location: {
       lat: { type: Number, default: null },
       lng: { type: Number, default: null },
